@@ -1,0 +1,21 @@
+// ============================================================
+// SECTION 1.3: BI-STABLE FLIP-FLOP LOGIC
+// ============================================================
+
+// Rising edge detection
+#M_FF_RisingEdge := #I_FF_PB AND NOT #M_FF_LastState;
+#M_FF_LastState := #I_FF_PB;
+
+// Toggle output on each rising edge
+IF #M_FF_RisingEdge THEN
+    #Q_FF_Output := NOT #Q_FF_Output;
+END_IF;
+
+
+// ============================================================
+// SECTION 1.4: CYCLIC INTERRUPT OB30 (2-SECOND INTERVAL)
+// ============================================================
+
+// This block executes once every 2 seconds
+#TwoSecondPulse := TRUE;
+#CyclicCounter := #CyclicCounter + 1;
