@@ -1,0 +1,85 @@
+// ============================================================
+// SECTION 2.5: FB_TANKLEVELCONTROL
+// ============================================================
+FUNCTION_BLOCK "FB_TankLevelControl"
+{ S7_Optimized_Access := 'TRUE' }
+VERSION : 0.1
+VAR_INPUT
+    LT001_Raw                 : Int;
+    LT001_InServiceCmd        : Bool;
+    LT001_Failed              : Bool;
+    LCV100_ControlEnableCmd   : Bool;
+END_VAR
+VAR_OUTPUT
+    LT001_LevelPct            : Real;
+    LT001_InService           : Bool;
+    LCV100_ControlEnabled     : Bool;
+    LCV100_OpenPct            : Real;
+    LCV100_AO_Raw             : Int;
+    LCV100_LowLevelLockout    : Bool;
+    LCV100_PipeGreen          : Bool;
+    System_Fault              : Bool;
+END_VAR
+VAR_TEMP
+    ValveCalc                 : Real;
+END_VAR
+
+BEGIN
+    // 1. Scale LT001 raw analog input to 0–100% level
+    #LT001_LevelPct := INT_TO_REAL(#LT001_Raw) * 100.0 / 27648.0;
+    
+    // Clamp level value to valid engineering range
+    IF #LT001_LevelPct < 0.0 THEN
+        #LT001_LevelPct := 0.0;
+    ELSIF #LT001_LevelPct > 100.0 THEN
+        #LT001_LevelPct := 100.0;
+    END_IF;
+
+    // 2. LT001 service and fault handling
+    IF #LT001_Failed THEN
+        #LT001_InService := FALSE;
+    ELSE
+        #LT001_InService := #LT001_InServiceCmd;
+    END_IF;
+
+    // General system fault
+    #System_Fault := #LT001_Failed OR NOT #LT001_InService;
+
+    // 3. Valve control enable permissive
+    #LCV100_ControlEnabled := #LCV100_ControlEnableCmd AND #LT001_InService AND NOT #LT001_Failed;
+
+    // 4. Low-level lockout with hysteresis
+    IF #LT001_LevelPct < 5.0 THEN
+        #LCV100_LowLevelLockout := TRUE;
+    ELSIF #LT001_LevelPct >= 20.0 THEN
+        #LCV100_LowLevelLockout := FALSE;
+    END_IF;
+
+    // 5. Valve output calculation
+    IF NOT #LCV100_ControlEnabled THEN
+        #LCV100_OpenPct := 0.0;
+    ELSIF #LCV100_LowLevelLockout THEN
+        #LCV100_OpenPct := 0.0;
+    ELSE
+        // Normal proportional control (70% level = 65% open, 100% level = 100% open)
+        IF #LT001_LevelPct >= 70.0 THEN
+            #ValveCalc := 65.0 + ((#LT001_LevelPct - 70.0) * (35.0 / 30.0));
+            // Clamp valve output
+            IF #ValveCalc > 100.0 THEN
+                #LCV100_OpenPct := 100.0;
+            ELSIF #ValveCalc < 65.0 THEN
+                #LCV100_OpenPct := 65.0;
+            ELSE
+                #LCV100_OpenPct := #ValveCalc;
+            END_IF;
+        ELSE
+            #LCV100_OpenPct := 0.0;
+        END_IF;
+    END_IF;
+
+    // 6. Convert valve percentage to raw analog output (0-27648)
+    #LCV100_AO_Raw := REAL_TO_INT(#LCV100_OpenPct * 27648.0 / 100.0);
+
+    // 7. HMI pipework indication
+    #LCV100_PipeGreen := #LCV100_OpenPct > 2.0;
+END_FUNCTION_BLOCK
